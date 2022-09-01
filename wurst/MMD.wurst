@@ -28,7 +28,7 @@ int array q_index
 QueueNode q_head = null
 QueueNode q_tail = null
 
-enum Goal
+public enum Goal
   None
   High
   Low
@@ -42,7 +42,7 @@ function Goal.toString() returns string
     case Low
       return "low"
 
-enum ValueType
+public enum ValueType
   String
   Real
   Int
@@ -56,7 +56,7 @@ function ValueType.toString() returns string
     case Int
       return "int"
 
-enum Suggestion
+public enum Suggestion
   None
   Track
   Leaderboard
@@ -70,7 +70,7 @@ function Suggestion.toString() returns string
     case Leaderboard
       return "leaderboard"
 
-enum PlayerFlag
+public enum PlayerFlag
   Drawer
   Loser
   Winner
@@ -323,9 +323,9 @@ public class MMD
   /**Defines a variable to store string values in*/
   static function defineStringValue(string name, Suggestion suggestion) returns IMMDStringValue
     if (name == "" or name == null)
-      error("w3mmd: value name is empty")
+      error("MMD: value name is empty")
     if (name.length() > 32)
-      error("w3mmd: value name '" + name + "' is too long")
+      error("MMD: value name '" + name + "' is too long")
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.String castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.String, Goal.None, suggestion)
@@ -342,9 +342,9 @@ public class MMD
   /**Defines a variable to store integer values in*/
   static function defineIntValue(string name, Goal goal, Suggestion suggestion) returns IMMDIntValue
     if (name == "" or name == null)
-      error("w3mmd: value name is empty")
+      error("MMD: value name is empty")
     if (name.length() > 32)
-      error("w3mmd: value name '" + name + "' is too long")
+      error("MMD: value name '" + name + "' is too long")
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.Int castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.Int, goal, suggestion)
@@ -361,9 +361,9 @@ public class MMD
   /**Defines a variable to store real values in*/
   static function defineRealValue(string name, Goal goal, Suggestion suggestion) returns IMMDRealValue
     if (name == "" or name == null)
-      error("w3mmd: value name is empty")
+      error("MMD: value name is empty")
     if (name.length() > 32)
-      error("w3mmd: value name '" + name + "' is too long")
+      error("MMD: value name '" + name + "' is too long")
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.Real castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.Real, goal, suggestion)
