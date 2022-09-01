@@ -1,5 +1,5 @@
 # WurstMMD
-A w3mmd library for WC3 Wurst maps.
+A w3mmd library for WC3 Wurst maps. Learn more here https://wc3stats.com/docs/about
 
 ## Usage
 ### flagPlayer
