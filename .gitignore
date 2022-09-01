@@ -1,3 +1,5 @@
 /_build
-wurst.dependencies
 /.vscode
+wurst.dependencies
+*.code-workspace
+*.j

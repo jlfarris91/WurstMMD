@@ -1,79 +1,149 @@
-///////////////////////////////////////////////////////////////
-/// The Map Meta Data Package
-/// Version: v1.00       
-/// Last Modified: April 24, 2009
-/// Author Chain: Strilanc, [insert next ...]
-///////////////////////////////////////////////////////////////
-/// This package is used to emit standardized meta data which parsers and bot hosts can use to record relevant
-/// game statistics like "hero kills" which would otherwise be impossible to record automatically.
-///
-/// In particular, the flag function can be used to indicate if a leaver should be awarded a win or not. Replays
-/// don't contain enough information to easily tell winners who leave from losers who leave. (for example: people
-/// who leave while end-game stats are being shown)
-///////////////////////////////////////////////////////////////
-/// Interface:
-///   void flagPlayer(player, flag_constant)
-///   void defineValue(name, type_constant, goal_constant, suggest_constant)
-///   void updateValueInt(name, player, operation_constant, value)
-///   void updateValueReal(name, player, operation_constant, value)
-///   void updateValueString(name, player, value)
-///   void defineEvent0(name, format) /////////////////////////
-
 package MMD
 import ClosureTimers
-
-public constant integer GOAL_NONE = 101
-public constant integer GOAL_HIGH = 102
-public constant integer GOAL_LOW = 103
-
-public constant integer TYPE_STRING = 101
-public constant integer TYPE_REAL = 102
-public constant integer TYPE_INT = 103
-
-public constant integer OP_ADD = 101
-public constant integer OP_SUB = 102
-public constant integer OP_SET = 103
-
-public constant integer SUGGEST_NONE = 101
-public constant integer SUGGEST_TRACK = 102
-public constant integer SUGGEST_LEADERBOARD = 103
-
-public constant integer FLAG_DRAWER = 101
-public constant integer FLAG_LOSER = 102
-public constant integer FLAG_WINNER = 103
-public constant integer FLAG_LEAVER = 104
-public constant integer FLAG_PRACTICING = 105
+import ErrorHandling
 
 @configurable public constant bool SHOW_DEBUG_MESSAGES = true
 
 constant string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+= \\!@#$%^&*()/?>.<,;:'\"{}[]|`~"
-constant integer num_chars = StringLength(chars)
-string array flags
-string array goals
-string array ops
-string array types
-string array suggestions
+constant int num_chars = chars.length()
 boolean initialized = false
         
 gamecache gc = null
 constant string ESCAPED_CHARS = " \\"
 
-constant integer CURRENT_VERSION = 1
-constant integer MINIMUM_PARSER_VERSION = 1
+constant int CURRENT_VERSION = 1
+constant int MINIMUM_PARSER_VERSION = 1
 constant string FILENAME = "MMD.Dat"
 constant string M_KEY_VAL = "val:"
 constant string M_KEY_CHK = "chk:"
-constant integer NUM_SENDERS_NAIVE = 1
-constant integer NUM_SENDERS_SAFE = 3
-integer num_senders = NUM_SENDERS_NAIVE
-integer num_msg = 0        
+constant int NUM_SENDERS_NAIVE = 1
+constant int NUM_SENDERS_SAFE = 3
+int num_senders = NUM_SENDERS_NAIVE
+int num_msg = 0        
 
 timer clock = CreateTimer()
 string array q_msg
 real array q_time
-integer array q_index
+int array q_index
 QueueNode q_head = null
 QueueNode q_tail = null
+
+enum Goal
+  None
+  High
+  Low
+
+function Goal.toString() returns string
+  switch (this)
+    case None
+      return "none"
+    case High
+      return "high"
+    case Low
+      return "low"
+
+enum ValueType
+  String
+  Real
+  Int
+
+function ValueType.toString() returns string
+  switch (this)
+    case String
+      return "string"
+    case Real
+      return "real"
+    case Int
+      return "int"
+
+enum Suggestion
+  None
+  Track
+  Leaderboard
+
+function Suggestion.toString() returns string
+  switch (this)
+    case None
+      return "none"
+    case Track
+      return "track"
+    case Leaderboard
+      return "leaderboard"
+
+enum PlayerFlag
+  Drawer
+  Loser
+  Winner
+  Leaver
+  Practicing
+
+function PlayerFlag.toString() returns string
+  switch (this)
+    case Drawer
+      return "drawer"
+    case Loser
+      return "loser"
+    case Winner
+      return "winner"
+    case Leaver
+      return "leaver"
+    case Practicing
+      return "practicing"
+
+public interface IMMDStringValue
+  function set(player p, string value)
+
+public interface IMMDRealValue
+  function set(player p, real value)
+  function add(player p, real value)
+  function sub(player p, real value)
+
+class RealValue implements IMMDRealValue
+  string packedName
+  construct(string packedName)
+    this.packedName = packedName
+  override function set(player p, real value)
+    MMD.setValue(p, packedName, value)
+    Emitter.emitSetVariable(p, packedName, "=", pack(value.toString()))  
+  override function add(player p, real value)
+    Emitter.emitSetVariable(p, packedName, "+=", pack(value.toString()))  
+  override function sub(player p, real value)
+    Emitter.emitSetVariable(p, packedName, "-=", pack(value.toString()))
+
+public interface IMMDIntValue
+  function set(player p, int value)
+  function add(player p, int value)
+  function sub(player p, int value)
+
+class IntValue implements IMMDIntValue
+  private string packedName
+  construct(string packedName)
+    this.packedName = packedName
+  override function set(player p, int value)
+    Emitter.emitSetVariable(p, packedName, "=", pack(value.toString()))
+  override function add(player p, int value)
+    Emitter.emitSetVariable(p, packedName, "+=", pack(value.toString()))
+  override function sub(player p, int value)
+    Emitter.emitSetVariable(p, packedName, "-=", pack(value.toString()))
+
+public interface IMMDEvent
+  function raise(vararg string args)
+
+class Event implements IMMDEvent
+  private string packedName
+  private int numArgs
+  construct(string packedName, int numArgs)
+    this.packedName = packedName
+    this.numArgs = numArgs
+  override function raise(vararg string args)
+    var argsData = ""
+    var count = 0
+    for arg in args
+      count++
+      argsData += " " + arg
+    if (count != numArgs)
+      error("MMD: Expected {0} args for event {1} but got {2}".format(numArgs.toString(), packedName, count.toString()))
+    Emitter.emitEvent(packedName, argsData)
 
 /**Triggered when tampering is detected. Increases the number of safeguards against tampering.*/
 public function raiseGuard(string reason)
@@ -91,27 +161,27 @@ function prepC2I()
     var id = SubString(chars, i, i+1)
     if (id == StringCase(id, true))
       id += "U"
-    StoreInteger(gc, "c2i", id, i)
+    gc.saveInt("c2i", id, i)
 
-/**Converts a character to an integer*/
+/**Converts a character to an int*/
 function c2i(string c) returns int
   var id = c
   if id == StringCase(id, true)
     id = id + "U"
-  var i = GetStoredInteger(gc, "c2i", id)
-  if (i < 0 or i >= num_chars or SubString(chars, i, i+1) != c) and HaveStoredInteger(gc, "c2i", id)
+  var i = gc.loadInt("c2i", id)
+  if (i < 0 or i >= num_chars or SubString(chars, i, i+1) != c) and gc.hasInt("c2i", id)
     //A cheater sent a fake sync to screw with the cached values
     while (i < num_chars)
       if c == SubString(chars, i, i+1) //cheating!
         raiseGuard("c2i poisoned")
-        StoreInteger(gc, "c2i", id, i)
+        gc.saveInt("c2i", id, i)
         break
       i++
   return i
 
 /**Computes a weak hash value, hopefully secure enough for our purposes*/
-function poorHash(string s, integer seed) returns int
-  let n = StringLength(s)
+function poorHash(string s, int seed) returns int
+  let n = s.length()
   var m = n + seed
   for i = 0 to n-1
     m = m * 41 + c2i(SubString(s, i, i+1))
@@ -125,8 +195,8 @@ class QueueNode
   string key = ""
   QueueNode next = null
   
-  construct(integer id, string msg)
-    this.timeout = time() + 7.0 + GetRandomReal(0, 2+0.1*GetPlayerId(GetLocalPlayer()))
+  construct(int id, string msg)
+    this.timeout = time() + 7.0 + GetRandomReal(0, 2 + 0.1 * localPlayer.getId())
     this.msg = msg
     this.checksum = poorHash(msg, id)
     this.key = id.toString()
@@ -141,8 +211,8 @@ class QueueNode
   function send()
     gc.saveInt(M_KEY_VAL + key, msg, checksum)
     gc.saveInt(M_KEY_CHK + key, key, checksum)
-    SyncStoredInteger(gc, M_KEY_VAL + key, msg)
-    SyncStoredInteger(gc, M_KEY_CHK + key, key)
+    gc.syncInt(M_KEY_VAL + key, msg)
+    gc.syncInt(M_KEY_CHK + key, key)
 
 /**Returns true for a fixed size uniform random subof players in the game*/
 function isEmitter() returns bool
@@ -150,7 +220,7 @@ function isEmitter() returns bool
   int array picks
   bool array pick_flags
   for i = 0 to 23
-    if GetPlayerController(Player(i)) == MAP_CONTROL_USER and GetPlayerSlotState(Player(i)) == PLAYER_SLOT_STATE_PLAYING
+    if GetPlayerController(players[i]) == MAP_CONTROL_USER and GetPlayerSlotState(players[i]) == PLAYER_SLOT_STATE_PLAYING
       if n < num_senders //initializing picks
         picks[n] = i
         pick_flags[i] = true
@@ -161,7 +231,7 @@ function isEmitter() returns bool
           picks[r] = i
           pick_flags[i] = true
       n++
-  return pick_flags[GetPlayerId(GetLocalPlayer())]
+  return pick_flags[localPlayer.getId()]
 
 /**Places meta-data in the replay and in network traffic*/
 function emit(string message)
@@ -189,16 +259,16 @@ function tick()
   var q = q_head
 
   while (q != null and q.timeout < time())
-    if not HaveStoredInteger(gc, M_KEY_VAL+q.key, q.msg)
+    if not gc.hasInt(M_KEY_VAL+q.key, q.msg)
       raiseGuard("message skipping")
       q.send()
-    else if not HaveStoredInteger(gc, M_KEY_CHK+q.key, q.key)
+    else if not gc.hasInt(M_KEY_CHK+q.key, q.key)
       raiseGuard("checksum skipping")
       q.send()
-    else if GetStoredInteger(gc, M_KEY_VAL+q.key, q.msg) != q.checksum
+    else if gc.loadInt(M_KEY_VAL+q.key, q.msg) != q.checksum
       raiseGuard("message tampering")
       q.send()
-    else if GetStoredInteger(gc, M_KEY_CHK+q.key, q.key) != q.checksum
+    else if gc.loadInt(M_KEY_CHK+q.key, q.key) != q.checksum
       raiseGuard("checksum tampering")
       q.send()
     q_head = q.next
@@ -210,7 +280,7 @@ function tick()
   
   //check for future message tampering
   for i = 0 to 9
-    if (not HaveStoredInteger(gc, M_KEY_CHK + num_msg.toString(), num_msg.toString()))
+    if (not gc.hasInt(M_KEY_CHK + num_msg.toString(), num_msg.toString()))
       break
     raiseGuard("message insertion")
     emit("Blank")
@@ -231,118 +301,177 @@ function pack(string value) returns string
         break
     result += c    
   return result
-    
-/**Updates the value of a defined variable for a given player*/
-function update_value(string name, player p, string op, string value, integer val_type)
-  let id = GetPlayerId(p)
-  if p == null or id < 0 or id >= 24
-    //BJDebugMsg("MMD Set Error: Invalid player. Must be P1 to P24.")
-    skip
-  else if val_type != GetStoredInteger(gc, "types", name)
-    BJDebugMsg("MMD Set Error: Updated value of undefined variable or used value of incorrect type.")
-  else if StringLength(op) == 0
-    BJDebugMsg("MMD Set Error: Unrecognized operation type.")        
-  else if StringLength(name) > 50
-    BJDebugMsg("MMD Set Error: Variable name is too long.")
-  else if StringLength(name) == 0
-    BJDebugMsg("MMD Set Error: Variable name is empty.")
-  else
-    //BJDebugMsg ("MMD Update: [name: " + name + "] [pid: " + I2S (GetPlayerId (p)) + "] [op: " + op + "] [value: " + value + "] [val_type: " + I2S (val_type) + "]")
-    emit("VarP " + I2S(id) + " " + pack(name) + " " + op + " " + value)
-
-/**Defines an event's arguments and format*/
-function defineEvent(string name, integer num_args, string format, string arg_data)
-  if GetStoredInteger(gc, "events", name) != 0
-    BJDebugMsg("MMD DefEvent Error: Event redefined.")
-  else
-    StoreInteger(gc, "events", name, num_args+1)
-    emit("DefEvent " + pack(name) + " " + I2S(num_args) + " " + arg_data + pack(format))
-    
-/**Places an event in the meta-data*/
-function logEvent(string name, integer num_args, string data)
-  if GetStoredInteger(gc, "events", name) != num_args+1
-    BJDebugMsg("MMD logEvent Error: Event not defined or defined with different # of args.")
-  else
-    emit("Event " + pack(name) + data)
 
 ///////////////////////////////////////////////////////////////
 /// Public functions
 ///////////////////////////////////////////////////////////////
 
-/**Sets a player flag like "win_on_leave"*/
-public function flagPlayer(player p, integer flag_type)
-  let flag = flags[flag_type]
-  let id = GetPlayerId(p)
-  if p == null or id < 0 or id >= 24
-    BJDebugMsg("MMD Flag Error: Invalid player. Must be P1 to P24.")
-  else if StringLength(flag) == 0
-    BJDebugMsg("MMD Flag Error: Unrecognized flag type.")
-  else if GetPlayerController(Player(id)) == MAP_CONTROL_USER
-    emit("FlagP " + I2S(id) + " " + flag)
+public class MMD
 
-/**Defines a variable to store things in*/
-public function defineValue(string name, integer value_type, integer goal_type, integer suggestion_type)
-  let goal = goals[goal_type]
-  let vtype = types[value_type]
-  let stype = suggestions[suggestion_type]
-  if goal == null
-    BJDebugMsg("MMD Def Error: Unrecognized goal type.")
-  else if vtype == null
-    BJDebugMsg("MMD Def Error: Unrecognized value type.")
-  else if stype == null
-    BJDebugMsg("Stats Def Error: Unrecognized suggestion type.")
-  else if StringLength(name) > 32
-    BJDebugMsg("MMD Def Error: Variable name is too long.")
-  else if StringLength(name) == 0
-    BJDebugMsg("MMD Def Error: Variable name is empty.")
-  else if value_type == TYPE_STRING and goal_type != GOAL_NONE
-    BJDebugMsg("MMD Def Error: Strings must have goal type of none.")
-  else if GetStoredInteger(gc, "types", name) != 0
-    BJDebugMsg("MMD Def Error: Value redefined.")
-  else
-    StoreInteger(gc, "types", name, value_type)
-    emit("DefVarP " + pack(name) + " " + vtype + " " + goal + " " + stype)
+  /**Sets a player flag like "win_on_leave"*/
+  static function flagPlayer(player p, PlayerFlag flag)
+    let id = p.getId()
+    if id < 0 or id >= 24
+      BJDebugMsg("MMD Flag Error: Invalid player. Must be P1 to P24.")
+    if GetPlayerController(players[id]) == MAP_CONTROL_USER
+      Emitter.emitFlagPlayer(p, flag)
 
-/**Updates the value of an integer variable*/
-public function updateValue(string name, player p, integer op, integer value)
-  update_value(name, p, ops[op], I2S(value), TYPE_INT)
+  /**Defines a variable to store string values in*/
+  static function defineStringValue(string name) returns IMMDStringValue
+    return defineStringValue(name, Suggestion.None)
+
+  /**Defines a variable to store string values in*/
+  static function defineStringValue(string name, Suggestion suggestion) returns IMMDStringValue
+    if (name == "" or name == null)
+      error("w3mmd: value name is empty")
+    if (name.length() > 32)
+      error("w3mmd: value name '" + name + "' is too long")
+    let packedName = pack(name)
+    gc.saveInt("types", name, ValueType.String castTo int)
+    Emitter.emitDefineVariable(packedName, ValueType.String, Goal.None, suggestion)
+    return (player p, string value) -> Emitter.emitSetVariable(p, packedName, "=", pack(value))
+
+  /**Defines a variable to store integer values in*/
+  static function defineIntValue(string name) returns IMMDIntValue
+    return defineIntValue(name, Goal.None, Suggestion.None)
+
+  /**Defines a variable to store integer values in*/
+  static function defineIntValue(string name, Goal goal) returns IMMDIntValue
+    return defineIntValue(name, goal, Suggestion.None)
+
+  /**Defines a variable to store integer values in*/
+  static function defineIntValue(string name, Goal goal, Suggestion suggestion) returns IMMDIntValue
+    if (name == "" or name == null)
+      error("w3mmd: value name is empty")
+    if (name.length() > 32)
+      error("w3mmd: value name '" + name + "' is too long")
+    let packedName = pack(name)
+    gc.saveInt("types", name, ValueType.Int castTo int)
+    Emitter.emitDefineVariable(packedName, ValueType.Int, goal, suggestion)
+    return new IntValue(packedName)
+
+  /**Defines a variable to store real values in*/
+  static function defineRealValue(string name) returns IMMDRealValue
+    return defineRealValue(name, Goal.None, Suggestion.None)
+
+  /**Defines a variable to store real values in*/
+  static function defineRealValue(string name, Goal goal) returns IMMDRealValue
+    return defineRealValue(name, goal, Suggestion.None)
+
+  /**Defines a variable to store real values in*/
+  static function defineRealValue(string name, Goal goal, Suggestion suggestion) returns IMMDRealValue
+    if (name == "" or name == null)
+      error("w3mmd: value name is empty")
+    if (name.length() > 32)
+      error("w3mmd: value name '" + name + "' is too long")
+    let packedName = pack(name)
+    gc.saveInt("types", name, ValueType.Real castTo int)
+    Emitter.emitDefineVariable(packedName, ValueType.Real, goal, suggestion)
+    return new RealValue(packedName)
+
+  static function setValue(player p, string name, string value)
+    updateValue(name, p, "=", "\"" + pack(value) + "\"", ValueType.String)
+
+  static function setValue(player p, string name, real value)
+    updateValue(name, p, "=", value.toString(), ValueType.Real)
+
+  static function setValue(player p, string name, int value)
+    updateValue(name, p, "=", value.toString(), ValueType.Int)
+
+  static function addValue(player p, string name, real value)
+    updateValue(name, p, "+=", value.toString(), ValueType.Real)
+
+  static function addValue(player p, string name, int value)
+    updateValue(name, p, "+=", value.toString(), ValueType.Int)
+
+  static function subValue(player p, string name, real value)
+    updateValue(name, p, "-=", value.toString(), ValueType.Real)
+
+  static function subValue(player p, string name, int value)
+    updateValue(name, p, "-=", value.toString(), ValueType.Int)
     
-/**Updates the value of a real variable*/
-public function updateValue(string name, player p, integer op, real value)
-  update_value(name, p, ops[op], R2S(value), TYPE_REAL)
+  /**Updates the value of a defined variable for a given player*/
+  private static function updateValue(string name, player p, string op, string value, ValueType valueType)
+    let id = p.getId()
+    if p == null or id < 0 or id >= 24
+      //BJDebugMsg("MMD Set Error: Invalid player. Must be P1 to P24.")
+      skip
+    else if (valueType castTo int) != gc.loadInt("types", name)
+      BJDebugMsg("MMD Set Error: Updated value of undefined variable or used value of incorrect type.")
+    else if op.length() == 0
+      BJDebugMsg("MMD Set Error: Unrecognized operation type.")        
+    else if name.length() > 50
+      BJDebugMsg("MMD Set Error: Variable name is too long.")
+    else if name.length() == 0
+      BJDebugMsg("MMD Set Error: Variable name is empty.")
+    else
+      //BJDebugMsg ("MMD Update: [name: " + name + "] [pid: " + I2S ((p.getId())) + "] [op: " + op + "] [value: " + value + "] [val_type: " + I2S (val_type) + "]")
+      Emitter.emitSetVariable(p, pack(name), op, value)
 
-/**Updates the value of a string variable*/
-public function updateValue(string name, player p, string value)
-  let q = "\""
-  update_value(name, p, ops[OP_SET], q + pack(value) + q, TYPE_STRING)
+  static function defineEvent(string name, string format) returns IMMDEvent
+    return defineEvent(name, 0, format, "")
 
-public function defineEvent(string name, string format)
-  defineEvent(name, 0, format, "")
+  static function defineEvent(string name, string format, string argName0) returns IMMDEvent
+    return defineEvent(name, 1, format, pack(argName0) + " ")
 
-public function defineEvent(string name, string format, string argName0)
-  defineEvent(name, 1, format, pack(argName0) + " ")
+  static function defineEvent(string name, string format, string argName0, string argName1) returns IMMDEvent
+    return defineEvent(name, 2, format, pack(argName0) + " " + pack(argName1) + " ")
 
-public function defineEvent(string name, string format, string argName0, string argName1)
-  defineEvent(name, 2, format, pack(argName0) + " " + pack(argName1) + " ")
+  static function defineEvent(string name, string format, string argName0, string argName1, string argName2) returns IMMDEvent
+    return defineEvent(name, 3, format, pack(argName0) + " " + pack(argName1) + " " + pack(argName2) + " ")
 
-public function defineEvent(string name, string format, string argName0, string argName1, string argName2)
-  defineEvent(name, 3, format, pack(argName0) + " " + pack(argName1) + " " + pack(argName2) + " ")
+  /**Defines an event's arguments and format*/
+  private static function defineEvent(string name, int num_args, string format, string data) returns IMMDEvent
+    if gc.loadInt("events", name) != 0
+      BJDebugMsg("MMD DefEvent Error: Event redefined.")
+    else
+      gc.saveInt("events", name, num_args + 1)
+      Emitter.emitDefineEvent(pack(name), num_args, data, pack(format))
+    return new Event(pack(name), num_args)
 
-public function logEvent(string name)
-  logEvent(name, 0, "")
+  static function logEvent(string name)
+    logEvent(name, 0, "")
 
-public function logEvent(string name, string arg0)
-  logEvent(name, 1, " " + pack(arg0))
+  static function logEvent(string name, string arg0)
+    logEvent(name, 1, " " + pack(arg0))
 
-public function logEvent(string name, string arg0, string arg1)
-  logEvent(name, 2, " " + pack(arg0) + " " + pack(arg1))
+  static function logEvent(string name, string arg0, string arg1)
+    logEvent(name, 2, " " + pack(arg0) + " " + pack(arg1))
 
-public function logEvent(string name, string arg0, string arg1, string arg2)
-  logEvent(name, 3, " " + pack(arg0) + " " + pack(arg1) + " " + pack(arg2))
+  static function logEvent(string name, string arg0, string arg1, string arg2)
+    logEvent(name, 3, " " + pack(arg0) + " " + pack(arg1) + " " + pack(arg2))
 
-/**Emits meta-data which parsers will ignore unless they are customized to understand it*/
-public function logCustom(string unique_identifier, string data)
-  emit("custom " + pack(unique_identifier) + " " + pack(data))
+  /**Places an event in the meta-data*/
+  private static function logEvent(string name, int num_args, string data)
+    if gc.loadInt("events", name) != num_args+1
+      BJDebugMsg("MMD logEvent Error: Event not defined or defined with different # of args.")
+    else
+      Emitter.emitEvent(pack(name), data)
+
+  /**Emits meta-data which parsers will ignore unless they are customized to understand it*/
+  static function logCustom(string unique_identifier, string data)
+    Emitter.emitCustom(pack(unique_identifier), pack(data))
+
+class Emitter
+
+  static function emitFlagPlayer(player p, PlayerFlag flag)
+    emit("FlagP {0} {1}".format(p.getId().toString(), flag.toString()))
+
+  static function emitDefineVariable(string packedName, ValueType valueType, Goal goal, Suggestion suggestion)
+    emit("DefVarP {0} {1} {2} {3}".format(packedName, valueType.toString(), goal.toString(), suggestion.toString()))
+
+  static function emitSetVariable(player p, string packedName, string op, string packedValue)
+    emit("VarP {0} {1} {2} {3}".format(p.getId().toString(), packedName, op, packedValue))
+
+  static function emitDefineEvent(string packedName, int argCount, string packedFormat, string args)
+    emit("DefEvent {0} {1} {2} {3}".format(packedName, I2S(argCount), args, packedFormat))
+
+  /** args must either be empty or contain comma-separated strings starting with an empty space */
+  static function emitEvent(string packedName, string args)
+    emit("Event {0}{1}".format(packedName, args))
+
+  static function emitCustom(string packedIdentifier, string packedData)
+    emit("custom {0} {1}".format(packedIdentifier, packedData))
 
 ///////////////////////////////////////////////////////////////
 /// Initialization
@@ -363,29 +492,6 @@ function init2()
 ///Places init2 on a timer, initializes game cache, and translates constants*/
 init
   nullTimer(() -> init2())
-
-  goals[GOAL_NONE] = "none"
-  goals[GOAL_HIGH] = "high"
-  goals[GOAL_LOW] = "low"
-  
-  types[TYPE_INT] = "int"
-  types[TYPE_REAL] = "real"
-  types[TYPE_STRING] = "string"
-
-  suggestions[SUGGEST_NONE] = "none"
-  suggestions[SUGGEST_TRACK] = "track"
-  suggestions[SUGGEST_LEADERBOARD] = "leaderboard"
-
-  ops[OP_ADD] = "+="
-  ops[OP_SUB] = "-="
-  ops[OP_SET] = "="
-
-  flags[FLAG_DRAWER] = "drawer"
-  flags[FLAG_LOSER] = "loser"
-  flags[FLAG_WINNER] = "winner"
-  flags[FLAG_LEAVER] = "leaver"
-  flags[FLAG_PRACTICING] = "practicing"
-
   FlushGameCache(InitGameCache(FILENAME))
   gc = InitGameCache(FILENAME)
   TimerStart(clock, 999999999, false, null)
