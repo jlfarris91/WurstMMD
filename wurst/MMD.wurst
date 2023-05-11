@@ -7,6 +7,7 @@ import ErrorHandling
 constant string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+= \\!@#$%^&*()/?>.<,;:'\"{}[]|`~"
 constant int num_chars = chars.length()
 boolean initialized = false
+trigger g_initializedTrigger = CreateTrigger()
         
 gamecache gc = null
 constant string ESCAPED_CHARS = " \\"
@@ -103,28 +104,27 @@ class RealValue implements IMMDRealValue
   construct(string packedName)
     this.packedName = packedName
   override function set(player p, real value)
-    MMD.setValue(p, packedName, value)
-    Emitter.emitSetVariable(p, packedName, "=", pack(value.toString()))  
+    Emitter.emitSetVariable(p, packedName, "set", value.toString())
   override function add(player p, real value)
-    Emitter.emitSetVariable(p, packedName, "+=", pack(value.toString()))  
+    Emitter.emitSetVariable(p, packedName, "add", value.toString())
   override function sub(player p, real value)
-    Emitter.emitSetVariable(p, packedName, "-=", pack(value.toString()))
+    Emitter.emitSetVariable(p, packedName, "sub", value.toString())
 
-public interface IMMDIntValue
+public interface IMMDValueNumber
   function set(player p, int value)
   function add(player p, int value)
   function sub(player p, int value)
 
-class IntValue implements IMMDIntValue
+class IntValue implements IMMDValueNumber
   private string packedName
   construct(string packedName)
     this.packedName = packedName
   override function set(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "=", pack(value.toString()))
+    Emitter.emitSetVariable(p, packedName, "set", value.toString())
   override function add(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "+=", pack(value.toString()))
+    Emitter.emitSetVariable(p, packedName, "add", value.toString())
   override function sub(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "-=", pack(value.toString()))
+    Emitter.emitSetVariable(p, packedName, "sub", value.toString())
 
 public interface IMMDEvent
   function raise(vararg string args)
@@ -143,7 +143,7 @@ class Event implements IMMDEvent
       argsData += " " + arg
     if (count != numArgs)
       error("MMD: Expected {0} args for event {1} but got {2}".format(numArgs.toString(), packedName, count.toString()))
-    Emitter.emitEvent(packedName, argsData)
+    Emitter.emitEvent(packedName, numArgs == 0 ? "" : argsData)
 
 /**Triggered when tampering is detected. Increases the number of safeguards against tampering.*/
 public function raiseGuard(string reason)
@@ -308,6 +308,9 @@ function pack(string value) returns string
 
 public class MMD
 
+  static function onInitialized(code func)
+    g_initializedTrigger.addCondition(Condition(func))
+
   /**Sets a player flag like "win_on_leave"*/
   static function flagPlayer(player p, PlayerFlag flag)
     let id = p.getId()
@@ -332,15 +335,15 @@ public class MMD
     return (player p, string value) -> Emitter.emitSetVariable(p, packedName, "=", pack(value))
 
   /**Defines a variable to store integer values in*/
-  static function defineIntValue(string name) returns IMMDIntValue
-    return defineIntValue(name, Goal.None, Suggestion.None)
+  static function defineValueInt(string name) returns IMMDValueNumber
+    return defineValueInt(name, Goal.None, Suggestion.None)
 
   /**Defines a variable to store integer values in*/
-  static function defineIntValue(string name, Goal goal) returns IMMDIntValue
-    return defineIntValue(name, goal, Suggestion.None)
+  static function defineValueInt(string name, Goal goal) returns IMMDValueNumber
+    return defineValueInt(name, goal, Suggestion.None)
 
   /**Defines a variable to store integer values in*/
-  static function defineIntValue(string name, Goal goal, Suggestion suggestion) returns IMMDIntValue
+  static function defineValueInt(string name, Goal goal, Suggestion suggestion) returns IMMDValueNumber
     if (name == "" or name == null)
       error("MMD: value name is empty")
     if (name.length() > 32)
@@ -351,15 +354,15 @@ public class MMD
     return new IntValue(packedName)
 
   /**Defines a variable to store real values in*/
-  static function defineRealValue(string name) returns IMMDRealValue
-    return defineRealValue(name, Goal.None, Suggestion.None)
+  static function defineValueReal(string name) returns IMMDRealValue
+    return defineValueReal(name, Goal.None, Suggestion.None)
 
   /**Defines a variable to store real values in*/
-  static function defineRealValue(string name, Goal goal) returns IMMDRealValue
-    return defineRealValue(name, goal, Suggestion.None)
+  static function defineValueReal(string name, Goal goal) returns IMMDRealValue
+    return defineValueReal(name, goal, Suggestion.None)
 
   /**Defines a variable to store real values in*/
-  static function defineRealValue(string name, Goal goal, Suggestion suggestion) returns IMMDRealValue
+  static function defineValueReal(string name, Goal goal, Suggestion suggestion) returns IMMDRealValue
     if (name == "" or name == null)
       error("MMD: value name is empty")
     if (name.length() > 32)
@@ -370,33 +373,33 @@ public class MMD
     return new RealValue(packedName)
 
   static function setValue(player p, string name, string value)
-    updateValue(name, p, "=", "\"" + pack(value) + "\"", ValueType.String)
+    updateValue(name, p, "=", pack(value), ValueType.String)
 
   static function setValue(player p, string name, real value)
-    updateValue(name, p, "=", value.toString(), ValueType.Real)
+    updateValue(name, p, "set", value.toString(), ValueType.Real)
 
   static function setValue(player p, string name, int value)
-    updateValue(name, p, "=", value.toString(), ValueType.Int)
+    updateValue(name, p, "set", value.toString(), ValueType.Int)
 
   static function addValue(player p, string name, real value)
-    updateValue(name, p, "+=", value.toString(), ValueType.Real)
+    updateValue(name, p, "add", value.toString(), ValueType.Real)
 
   static function addValue(player p, string name, int value)
-    updateValue(name, p, "+=", value.toString(), ValueType.Int)
+    updateValue(name, p, "add", value.toString(), ValueType.Int)
 
   static function subValue(player p, string name, real value)
-    updateValue(name, p, "-=", value.toString(), ValueType.Real)
+    updateValue(name, p, "sub", value.toString(), ValueType.Real)
 
   static function subValue(player p, string name, int value)
-    updateValue(name, p, "-=", value.toString(), ValueType.Int)
+    updateValue(name, p, "sub", value.toString(), ValueType.Int)
     
   /**Updates the value of a defined variable for a given player*/
-  private static function updateValue(string name, player p, string op, string value, ValueType valueType)
+  private static function updateValue(string name, player p, string op, string value, ValueType _type)
     let id = p.getId()
     if p == null or id < 0 or id >= 24
       //BJDebugMsg("MMD Set Error: Invalid player. Must be P1 to P24.")
       skip
-    else if (valueType castTo int) != gc.loadInt("types", name)
+    else if (_type castTo int) != gc.loadInt("types", name)
       BJDebugMsg("MMD Set Error: Updated value of undefined variable or used value of incorrect type.")
     else if op.length() == 0
       BJDebugMsg("MMD Set Error: Unrecognized operation type.")        
@@ -408,6 +411,9 @@ public class MMD
       //BJDebugMsg ("MMD Update: [name: " + name + "] [pid: " + I2S ((p.getId())) + "] [op: " + op + "] [value: " + value + "] [val_type: " + I2S (val_type) + "]")
       Emitter.emitSetVariable(p, pack(name), op, value)
 
+  static function defineEvent(string name) returns IMMDEvent
+    return defineEvent(name, 0, name, "")
+
   static function defineEvent(string name, string format) returns IMMDEvent
     return defineEvent(name, 0, format, "")
 
@@ -418,7 +424,7 @@ public class MMD
     return defineEvent(name, 2, format, pack(argName0) + " " + pack(argName1) + " ")
 
   static function defineEvent(string name, string format, string argName0, string argName1, string argName2) returns IMMDEvent
-    return defineEvent(name, 3, format, pack(argName0) + " " + pack(argName1) + " " + pack(argName2) + " ")
+    return defineEvent(name, 3, format, pack(argName0) + " " + pack(argName1) + " " + pack(argName2))
 
   /**Defines an event's arguments and format*/
   private static function defineEvent(string name, int num_args, string format, string data) returns IMMDEvent
@@ -426,7 +432,8 @@ public class MMD
       BJDebugMsg("MMD DefEvent Error: Event redefined.")
     else
       gc.saveInt("events", name, num_args + 1)
-      Emitter.emitDefineEvent(pack(name), num_args, data, pack(format))
+      let finalArgs = num_args > 0 ? "{0} {1}".format(num_args.toString(), data) : "0"
+      Emitter.emitDefineEvent(pack(name), finalArgs, pack(format))
     return new Event(pack(name), num_args)
 
   static function logEvent(string name)
@@ -448,6 +455,26 @@ public class MMD
     else
       Emitter.emitEvent(pack(name), data)
 
+  static function defineSetting(string name, string value)
+    defineSetting(name, ValueType.String, value)
+
+  static function defineSetting(string name, int value)
+    defineSetting(name, ValueType.Int, value.toString())
+
+  static function defineSetting(string name, real value)
+    defineSetting(name, ValueType.Real, value.toString())
+
+  static function defineSetting(string name, bool value)
+    defineSetting(name, ValueType.Int, value ? "1" : "0")
+
+  /**Defines an event's arguments and format*/
+  private static function defineSetting(string name, ValueType _type, string value)
+    if gc.loadInt("setting", name) != 0
+      BJDebugMsg("MMD DefSetting Error: Setting redefined.")
+    else
+      gc.saveInt("setting", name, 1)
+      Emitter.emitDefineSetting(pack(name), _type.toString(), value)
+
   /**Emits meta-data which parsers will ignore unless they are customized to understand it*/
   static function logCustom(string unique_identifier, string data)
     Emitter.emitCustom(pack(unique_identifier), pack(data))
@@ -457,18 +484,21 @@ class Emitter
   static function emitFlagPlayer(player p, PlayerFlag flag)
     emit("FlagP {0} {1}".format(p.getId().toString(), flag.toString()))
 
-  static function emitDefineVariable(string packedName, ValueType valueType, Goal goal, Suggestion suggestion)
-    emit("DefVarP {0} {1} {2} {3}".format(packedName, valueType.toString(), goal.toString(), suggestion.toString()))
+  static function emitDefineVariable(string packedName, ValueType _type, Goal goal, Suggestion suggestion)
+    emit("DefVarP {0} {1} {2} {3}".format(packedName, _type.toString(), goal.toString(), suggestion.toString()))
 
   static function emitSetVariable(player p, string packedName, string op, string packedValue)
     emit("VarP {0} {1} {2} {3}".format(p.getId().toString(), packedName, op, packedValue))
 
-  static function emitDefineEvent(string packedName, int argCount, string packedFormat, string args)
-    emit("DefEvent {0} {1} {2} {3}".format(packedName, I2S(argCount), args, packedFormat))
+  static function emitDefineEvent(string packedName, string args, string packedFormat)
+    emit("DefEvent {0} {1} {2}".format(packedName, args, packedFormat))
 
   /** args must either be empty or contain comma-separated strings starting with an empty space */
   static function emitEvent(string packedName, string args)
     emit("Event {0}{1}".format(packedName, args))
+  
+  static function emitDefineSetting(string packedName, string _type, string value)
+    emit("setting {0} {1} {2}".format(packedName, _type, value))
 
   static function emitCustom(string packedIdentifier, string packedData)
     emit("custom {0} {1}".format(packedIdentifier, packedData))
@@ -484,10 +514,13 @@ function init2()
   emit("init version " + I2S(MINIMUM_PARSER_VERSION) + " " + I2S(CURRENT_VERSION))
 
   for i = 0 to 23
-    if GetPlayerController(Player(i)) == MAP_CONTROL_USER and GetPlayerSlotState(Player(i)) == PLAYER_SLOT_STATE_PLAYING
-      emit("init pid " + I2S(i) + " " + pack(GetPlayerName(Player(i))))
+    let p = players[i]
+    if GetPlayerController(p) == MAP_CONTROL_USER and GetPlayerSlotState(p) == PLAYER_SLOT_STATE_PLAYING
+      emit("init pid " + I2S(i) + " " + pack(GetPlayerName(p)))
 
   doPeriodically(0.37, cb -> tick())
+
+  g_initializedTrigger.evaluate()
 
 ///Places init2 on a timer, initializes game cache, and translates constants*/
 init
