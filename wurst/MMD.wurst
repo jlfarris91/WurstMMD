@@ -91,40 +91,40 @@ function PlayerFlag.toString() returns string
     case Practicing
       return "practicing"
 
-public interface IMMDStringValue
+public interface IMMDValueString
   function set(player p, string value)
 
-public interface IMMDRealValue
+public interface IMMDValueReal
   function set(player p, real value)
   function add(player p, real value)
   function sub(player p, real value)
 
-class RealValue implements IMMDRealValue
+class ValueReal implements IMMDValueReal
   string packedName
   construct(string packedName)
     this.packedName = packedName
   override function set(player p, real value)
-    Emitter.emitSetVariable(p, packedName, "set", value.toString())
+    Emitter.emitSetVariable(p, packedName, "=", value.toString())
   override function add(player p, real value)
-    Emitter.emitSetVariable(p, packedName, "add", value.toString())
+    Emitter.emitSetVariable(p, packedName, "+=", value.toString())
   override function sub(player p, real value)
-    Emitter.emitSetVariable(p, packedName, "sub", value.toString())
+    Emitter.emitSetVariable(p, packedName, "-=", value.toString())
 
-public interface IMMDValueNumber
+public interface IMMDValueInt
   function set(player p, int value)
   function add(player p, int value)
   function sub(player p, int value)
 
-class IntValue implements IMMDValueNumber
+class ValueInt implements IMMDValueInt
   private string packedName
   construct(string packedName)
     this.packedName = packedName
   override function set(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "set", value.toString())
+    Emitter.emitSetVariable(p, packedName, "=", value.toString())
   override function add(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "add", value.toString())
+    Emitter.emitSetVariable(p, packedName, "+=", value.toString())
   override function sub(player p, int value)
-    Emitter.emitSetVariable(p, packedName, "sub", value.toString())
+    Emitter.emitSetVariable(p, packedName, "-=", value.toString())
 
 public interface IMMDEvent
   function raise(vararg string args)
@@ -320,11 +320,11 @@ public class MMD
       Emitter.emitFlagPlayer(p, flag)
 
   /**Defines a variable to store string values in*/
-  static function defineStringValue(string name) returns IMMDStringValue
+  static function defineStringValue(string name) returns IMMDValueString
     return defineStringValue(name, Suggestion.None)
 
   /**Defines a variable to store string values in*/
-  static function defineStringValue(string name, Suggestion suggestion) returns IMMDStringValue
+  static function defineStringValue(string name, Suggestion suggestion) returns IMMDValueString
     if (name == "" or name == null)
       error("MMD: value name is empty")
     if (name.length() > 32)
@@ -332,18 +332,18 @@ public class MMD
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.String castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.String, Goal.None, suggestion)
-    return (player p, string value) -> Emitter.emitSetVariable(p, packedName, "=", pack(value))
+    return (player p, string value) -> Emitter.emitSetVariable(p, packedName, "=", "\"{0}\"".format(pack(value)))
 
   /**Defines a variable to store integer values in*/
-  static function defineValueInt(string name) returns IMMDValueNumber
+  static function defineValueInt(string name) returns IMMDValueInt
     return defineValueInt(name, Goal.None, Suggestion.None)
 
   /**Defines a variable to store integer values in*/
-  static function defineValueInt(string name, Goal goal) returns IMMDValueNumber
+  static function defineValueInt(string name, Goal goal) returns IMMDValueInt
     return defineValueInt(name, goal, Suggestion.None)
 
   /**Defines a variable to store integer values in*/
-  static function defineValueInt(string name, Goal goal, Suggestion suggestion) returns IMMDValueNumber
+  static function defineValueInt(string name, Goal goal, Suggestion suggestion) returns IMMDValueInt
     if (name == "" or name == null)
       error("MMD: value name is empty")
     if (name.length() > 32)
@@ -351,18 +351,18 @@ public class MMD
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.Int castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.Int, goal, suggestion)
-    return new IntValue(packedName)
+    return new ValueInt(packedName)
 
   /**Defines a variable to store real values in*/
-  static function defineValueReal(string name) returns IMMDRealValue
+  static function defineValueReal(string name) returns IMMDValueReal
     return defineValueReal(name, Goal.None, Suggestion.None)
 
   /**Defines a variable to store real values in*/
-  static function defineValueReal(string name, Goal goal) returns IMMDRealValue
+  static function defineValueReal(string name, Goal goal) returns IMMDValueReal
     return defineValueReal(name, goal, Suggestion.None)
 
   /**Defines a variable to store real values in*/
-  static function defineValueReal(string name, Goal goal, Suggestion suggestion) returns IMMDRealValue
+  static function defineValueReal(string name, Goal goal, Suggestion suggestion) returns IMMDValueReal
     if (name == "" or name == null)
       error("MMD: value name is empty")
     if (name.length() > 32)
@@ -370,28 +370,28 @@ public class MMD
     let packedName = pack(name)
     gc.saveInt("types", name, ValueType.Real castTo int)
     Emitter.emitDefineVariable(packedName, ValueType.Real, goal, suggestion)
-    return new RealValue(packedName)
+    return new ValueReal(packedName)
 
   static function setValue(player p, string name, string value)
-    updateValue(name, p, "=", pack(value), ValueType.String)
+    updateValue(name, p, "=", "\"{0}\"".format(pack(value)), ValueType.String)
 
   static function setValue(player p, string name, real value)
-    updateValue(name, p, "set", value.toString(), ValueType.Real)
+    updateValue(name, p, "=", value.toString(), ValueType.Real)
 
   static function setValue(player p, string name, int value)
-    updateValue(name, p, "set", value.toString(), ValueType.Int)
+    updateValue(name, p, "=", value.toString(), ValueType.Int)
 
   static function addValue(player p, string name, real value)
-    updateValue(name, p, "add", value.toString(), ValueType.Real)
+    updateValue(name, p, "+=", value.toString(), ValueType.Real)
 
   static function addValue(player p, string name, int value)
-    updateValue(name, p, "add", value.toString(), ValueType.Int)
+    updateValue(name, p, "+=", value.toString(), ValueType.Int)
 
   static function subValue(player p, string name, real value)
-    updateValue(name, p, "sub", value.toString(), ValueType.Real)
+    updateValue(name, p, "-=", value.toString(), ValueType.Real)
 
   static function subValue(player p, string name, int value)
-    updateValue(name, p, "sub", value.toString(), ValueType.Int)
+    updateValue(name, p, "-=", value.toString(), ValueType.Int)
     
   /**Updates the value of a defined variable for a given player*/
   private static function updateValue(string name, player p, string op, string value, ValueType _type)
@@ -418,10 +418,10 @@ public class MMD
     return defineEvent(name, 0, format, "")
 
   static function defineEvent(string name, string format, string argName0) returns IMMDEvent
-    return defineEvent(name, 1, format, pack(argName0) + " ")
+    return defineEvent(name, 1, format, pack(argName0))
 
   static function defineEvent(string name, string format, string argName0, string argName1) returns IMMDEvent
-    return defineEvent(name, 2, format, pack(argName0) + " " + pack(argName1) + " ")
+    return defineEvent(name, 2, format, pack(argName0) + " " + pack(argName1))
 
   static function defineEvent(string name, string format, string argName0, string argName1, string argName2) returns IMMDEvent
     return defineEvent(name, 3, format, pack(argName0) + " " + pack(argName1) + " " + pack(argName2))
