@@ -140,7 +140,7 @@ class Event implements IMMDEvent
     var count = 0
     for arg in args
       count++
-      argsData += " " + arg
+      argsData += " " + pack(arg)
     if (count != numArgs)
       error("MMD: Expected {0} args for event {1} but got {2}".format(numArgs.toString(), packedName, count.toString()))
     Emitter.emitEvent(packedName, numArgs == 0 ? "" : argsData)
@@ -171,6 +171,7 @@ function c2i(string c) returns int
   var i = gc.loadInt("c2i", id)
   if (i < 0 or i >= num_chars or SubString(chars, i, i+1) != c) and gc.hasInt("c2i", id)
     //A cheater sent a fake sync to screw with the cached values
+    i = 0
     while (i < num_chars)
       if c == SubString(chars, i, i+1) //cheating!
         raiseGuard("c2i poisoned")
@@ -309,14 +310,20 @@ function pack(string value) returns string
 public class MMD
 
   static function onInitialized(code func)
-    g_initializedTrigger.addCondition(Condition(func))
+    if initialized
+      let callbackTrigger = CreateTrigger()
+      callbackTrigger.addAction(func)
+      callbackTrigger.execute()
+      callbackTrigger.destr()
+    else
+      g_initializedTrigger.addAction(func)
 
   /**Sets a player flag like "win_on_leave"*/
   static function flagPlayer(player p, PlayerFlag flag)
     let id = p.getId()
     if id < 0 or id >= 24
       BJDebugMsg("MMD Flag Error: Invalid player. Must be P1 to P24.")
-    if GetPlayerController(players[id]) == MAP_CONTROL_USER
+    else if GetPlayerController(players[id]) == MAP_CONTROL_USER
       Emitter.emitFlagPlayer(p, flag)
 
   /**Defines a variable to store string values in*/
@@ -520,7 +527,7 @@ function init2()
 
   doPeriodically(0.37, cb -> tick())
 
-  g_initializedTrigger.evaluate()
+  g_initializedTrigger.execute()
 
 ///Places init2 on a timer, initializes game cache, and translates constants*/
 init
