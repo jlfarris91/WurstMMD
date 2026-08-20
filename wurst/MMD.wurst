@@ -2,8 +2,6 @@ package MMD
 import ClosureTimers
 import ErrorHandling
 
-@configurable public constant bool SHOW_DEBUG_MESSAGES = true
-
 constant string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+= \\!@#$%^&*()/?>.<,;:'\"{}[]|`~"
 constant int num_chars = chars.length()
 boolean initialized = false
@@ -17,17 +15,8 @@ constant int MINIMUM_PARSER_VERSION = 1
 constant string FILENAME = "MMD.Dat"
 constant string M_KEY_VAL = "val:"
 constant string M_KEY_CHK = "chk:"
-constant int NUM_SENDERS_NAIVE = 1
-constant int NUM_SENDERS_SAFE = 3
-int num_senders = NUM_SENDERS_NAIVE
+constant real MMD_CACHE_RETENTION = 7.0
 int num_msg = 0        
-
-timer clock = CreateTimer()
-string array q_msg
-real array q_time
-int array q_index
-QueueNode q_head = null
-QueueNode q_tail = null
 
 public enum Goal
   None
@@ -145,16 +134,6 @@ class Event implements IMMDEvent
       error("MMD: Expected {0} args for event {1} but got {2}".format(numArgs.toString(), packedName, count.toString()))
     Emitter.emitEvent(packedName, numArgs == 0 ? "" : argsData)
 
-/**Triggered when tampering is detected. Increases the number of safeguards against tampering.*/
-public function raiseGuard(string reason)
-  if (SHOW_DEBUG_MESSAGES)
-    BJDebugMsg("MMD: Guard Raised! (" + reason + ")")
-  num_senders = NUM_SENDERS_SAFE //increase number of players voting on each message
-
-/**Returns seconds elapsed in game time*/
-function time() returns real
-  return clock.getElapsed()
-
 /**Initializes the char-to-int conversion*/
 function prepC2I()
   for i = 0 to num_chars-1
@@ -170,17 +149,15 @@ function c2i(string c) returns int
     id = id + "U"
   var i = gc.loadInt("c2i", id)
   if (i < 0 or i >= num_chars or SubString(chars, i, i+1) != c) and gc.hasInt("c2i", id)
-    //A cheater sent a fake sync to screw with the cached values
     i = 0
     while (i < num_chars)
-      if c == SubString(chars, i, i+1) //cheating!
-        raiseGuard("c2i poisoned")
+      if c == SubString(chars, i, i+1)
         gc.saveInt("c2i", id, i)
         break
       i++
   return i
 
-/**Computes a weak hash value, hopefully secure enough for our purposes*/
+/**Computes the legacy protocol checksum. This is message framing, not tamper protection.*/
 function poorHash(string s, int seed) returns int
   let n = s.length()
   var m = n + seed
@@ -188,51 +165,22 @@ function poorHash(string s, int seed) returns int
     m = m * 41 + c2i(SubString(s, i, i+1))
   return m
 
-/**Stores previously sent messages for tamper detection purposes*/
-class QueueNode
-  real timeout = 0.0
-  string msg = ""
-  int checksum = 0
-  string key = ""
-  QueueNode next = null
-  
-  construct(int id, string msg)
-    this.timeout = time() + 7.0 + GetRandomReal(0, 2 + 0.1 * localPlayer.getId())
-    this.msg = msg
-    this.checksum = poorHash(msg, id)
-    this.key = id.toString()
-
-  ondestroy
-    gc.flushInt(M_KEY_VAL + key, msg)
-    gc.flushInt(M_KEY_CHK + key, key)
-    this.msg = null
-    this.key = null
-    this.next = null
-
-  function send()
-    gc.saveInt(M_KEY_VAL + key, msg, checksum)
+/**Writes one MMD message only on the selected emitter's client. Arguments are synchronized and
+the local region contains only game-cache writes and their matching sync calls.*/
+@noinline
+function player.sendMmdMessage(string key, string message, int checksum)
+  if localPlayer == this
+    gc.saveInt(M_KEY_VAL + key, message, checksum)
     gc.saveInt(M_KEY_CHK + key, key, checksum)
-    gc.syncInt(M_KEY_VAL + key, msg)
+    gc.syncInt(M_KEY_VAL + key, message)
     gc.syncInt(M_KEY_CHK + key, key)
 
-/**Returns true for a fixed size uniform random subof players in the game*/
-function isEmitter() returns bool
-  var n = 0
-  int array picks
-  bool array pick_flags
+/**Returns the first active user slot. Every client resolves the same player.*/
+function getEmitter() returns player
   for i = 0 to 23
     if GetPlayerController(players[i]) == MAP_CONTROL_USER and GetPlayerSlotState(players[i]) == PLAYER_SLOT_STATE_PLAYING
-      if n < num_senders //initializing picks
-        picks[n] = i
-        pick_flags[i] = true
-      else //maintain the invariant 'P(being picked) = c/n'
-        let r = GetRandomInt(0, n)
-        if r < num_senders
-          pick_flags[picks[r]] = false
-          picks[r] = i
-          pick_flags[i] = true
-      n++
-  return pick_flags[localPlayer.getId()]
+      return players[i]
+  return null
 
 /**Places meta-data in the replay and in network traffic*/
 function emit(string message)
@@ -240,51 +188,19 @@ function emit(string message)
     BJDebugMsg("MMD Emit Error: Library not initialized yet.")
     return
 
-  //remember sent messages for tamper check
-  let q = new QueueNode(num_msg, message)
-  if q_head == null
-    q_head = q
-  else
-    q_tail.next = q
-  q_tail = q
-          
-  //send new message
-  num_msg = num_msg + 1
-  if isEmitter()
-    q.send()
+  let key = num_msg.toString()
+  let checksum = poorHash(message, num_msg)
+  num_msg++
+  let emitter = getEmitter()
+  if emitter != null
+    emitter.sendMmdMessage(key, message, checksum)
 
-/**Performs tamper checks*/
-function tick()
-    
-  //check previously sent messages for tampering
-  var q = q_head
-
-  while (q != null and q.timeout < time())
-    if not gc.hasInt(M_KEY_VAL+q.key, q.msg)
-      raiseGuard("message skipping")
-      q.send()
-    else if not gc.hasInt(M_KEY_CHK+q.key, q.key)
-      raiseGuard("checksum skipping")
-      q.send()
-    else if gc.loadInt(M_KEY_VAL+q.key, q.msg) != q.checksum
-      raiseGuard("message tampering")
-      q.send()
-    else if gc.loadInt(M_KEY_CHK+q.key, q.key) != q.checksum
-      raiseGuard("checksum tampering")
-      q.send()
-    q_head = q.next
-    destroy q
-    q = q_head
-
-  if q_head == null
-    q_tail = null
-  
-  //check for future message tampering
-  for i = 0 to 9
-    if (not gc.hasInt(M_KEY_CHK + num_msg.toString(), num_msg.toString()))
-      break
-    raiseGuard("message insertion")
-    emit("Blank")
+  // SyncStoredInteger completes before later game actions are processed. Keep the
+  // cells around briefly so every client can receive the sync, then release them
+  // on every client, including clients that did not emit the message.
+  doAfter(MMD_CACHE_RETENTION) ->
+    gc.flushInt(M_KEY_VAL + key, message)
+    gc.flushInt(M_KEY_CHK + key, key)
     
 /**Replaces control characters with escape sequences*/
 function pack(string value) returns string
@@ -525,8 +441,6 @@ function init2()
     if GetPlayerController(p) == MAP_CONTROL_USER and GetPlayerSlotState(p) == PLAYER_SLOT_STATE_PLAYING
       emit("init pid " + I2S(i) + " " + pack(GetPlayerName(p)))
 
-  doPeriodically(0.37, cb -> tick())
-
   g_initializedTrigger.execute()
 
 ///Places init2 on a timer, initializes game cache, and translates constants*/
@@ -534,5 +448,4 @@ init
   nullTimer(() -> init2())
   FlushGameCache(InitGameCache(FILENAME))
   gc = InitGameCache(FILENAME)
-  TimerStart(clock, 999999999, false, null)
   prepC2I()

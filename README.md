@@ -8,6 +8,19 @@ inside a `GetLocalPlayer()`/`localPlayer` branch or from another local-only UI o
 input callback. The library cannot reliably detect or repair a different message
 sequence on different clients.
 
+The library synchronously selects the lowest-id active user slot and emits each
+message immediately from that player's client. It intentionally has no delayed
+tamper detection, retry queue, randomized sender voting, or guard escalation.
+Those mechanisms cannot protect a modified map and must not introduce local
+timer or RNG behavior into a lockstep game.
+
+The selected client originates the game-cache sync command; the command is not
+sender-private. Warcraft distributes it to every client still connected, so the
+record is embedded in each connected client's replay stream. If that sender
+leaves, the next emission selects the next active user. A client that has already
+disconnected cannot receive later records, and an emission made with no active
+user slot is dropped.
+
 MMD starts on a zero-second timer. Do not define values/events or emit data
 directly during map/package initialization. Register setup with
 `MMD.onInitialized` instead:
